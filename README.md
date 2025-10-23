@@ -25,3 +25,6 @@ Check it out live:
  ```bash
 git clone https://github.com/yashviPayal/dijakstra-net.git
 cd dijakstra-net
+
+2. Open index.html in your browser.
+3. Click on nodes to create edges and visualize the shortest path.
