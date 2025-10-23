@@ -25,6 +25,3 @@ Check it out live:
  ```bash
 git clone https://github.com/yashviPayal/dijakstra-net.git
 cd dijakstra-net
-
-```bash
-git clone https://github.com/<your-username>/dijakstra-net.git
