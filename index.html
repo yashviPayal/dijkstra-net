@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Link-State Routing (Dijkstra) — Interactive Simulator (Light)</title>
+<style>
+  :root{
+    --bg1: #e6f7fb; /* light pastel teal */
+    --bg2: #f3fbff;
+    --panel: #ffffff;
+    --muted: #607d8b;
+    --accent: #0ea5e9; /* cyan */
+    --accent-2: #2563eb; /* blue */
+    --ok: #16a34a; /* green */
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --edge: #94a3b8;
+    --card-shadow: 0 12px 30px rgba(16,24,40,0.08);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:#0f172a;font:14px/1.4 Inter,system-ui,Segoe UI,Roboto,Ubuntu,Helvetica,Arial}
+  .app{display:grid;grid-template-columns:320px 1fr;gap:14px;height:100%;padding:18px}
+  .panel{background:var(--panel);border:1px solid rgba(15,23,42,0.04);border-radius:12px;box-shadow:var(--card-shadow);overflow:hidden}
+  .panel .title{padding:12px 14px;border-bottom:1px solid rgba(15,23,42,0.04);font-weight:700;letter-spacing:.2px;color:#0b2540;background:linear-gradient(180deg,rgba(14,165,233,0.06),transparent)}
+  .controls{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;gap:8px;align-items:center}
+  .btn{appearance:none;border:1px solid rgba(15,23,42,0.06);background:linear-gradient(180deg,#ffffff,#f7fbff);color:#0b2540;padding:9px 10px;border-radius:10px;cursor:pointer;letter-spacing:.2px;box-shadow:0 6px 14px rgba(16,24,40,0.04);transition:transform .05s ease,box-shadow .12s ease}
+  .btn:hover{box-shadow:0 14px 30px rgba(16,24,40,0.08)}
+  .btn:active{transform:translateY(1px)}
+  .btn.secondary{background:#f1f8ff}
+  .btn.warn{background:#fff7ed;border-color:rgba(245,158,11,0.12);color:var(--warn)}
+  .btn.danger{background:#fff1f1;border-color:rgba(239,68,68,0.08);color:var(--danger)}
+  .seg{display:flex;gap:6px}
+  .seg .btn{flex:1}
+  select,input[type="number"],input[type="text"]{background:#fbfeff;border:1px solid rgba(15,23,42,0.04);color:#0b2540;padding:8px;border-radius:8px;width:100%}
+  label{font-size:12px;color:var(--muted)}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px;align-items:center}
+  .canvas-wrap{position:relative;height:100%;}
+  svg{width:100%;height:100%;display:block}
+  .node{cursor:grab}
+  .node circle{fill:#e0f2ff;stroke:#6fc6ff;stroke-width:2}
+  .node text{font-weight:700;pointer-events:none;fill:#0b2540}
+  .edge{stroke:var(--edge);stroke-width:2;opacity:0.95}
+  .edge.disabled{stroke:#cbd5e1;stroke-dasharray:6 6;opacity:0.6}
+  .edge-label{fill:#0b2540;font-weight:600;user-select:none;font-size:11px}
+  .node.disabled circle{fill:#f1f5f9;stroke:#cbd5e1}
+  .node.disabled text{fill:#94a3b8}
+  .node.current circle{fill:#fff4d6;stroke:#f59e0b}
+  .node.settled circle{fill:#e6fff0;stroke:#16a34a}
+  .edge.candidate{stroke:#f59e0b;stroke-dasharray:6 4;stroke-width:3}
+  .edge.relaxed{stroke:#7dd3fc;stroke-width:4}
+  .edge.final{stroke:#60a5fa;stroke-width:4}
+  .packet{fill:#ef4444;stroke:#fff;stroke-width:1}
+  .lsa{fill:#16a34a;stroke:#0b401c;stroke-width:1}
+  .log{padding:10px 12px;height:240px;overflow:auto;background:linear-gradient(180deg,#fbfeff,#f7fbff);border-top:1px dashed rgba(15,23,42,0.04)}
+  .muted{color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#f1fbff;border:1px solid rgba(14,165,233,0.06);color:#0b2540;font-weight:700}
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+  .legend .sw{width:16px;height:6px;border-radius:4px}
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(11,37,64,0.28);backdrop-filter: blur(4px);z-index:50}
+  .modal.active{display:flex}
+  .modal>.box{width:min(760px,92vw);max-height:85vh;overflow:auto;background:var(--panel);border:1px solid rgba(11,37,64,0.06);border-radius:12px;box-shadow:0 30px 60px rgba(11,37,64,0.12)}
+  .box .hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(11,37,64,0.04)}
+  .box .bd{padding:16px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border-bottom:1px solid rgba(11,37,64,0.04);padding:8px 10px;text-align:left}
+  th{position:sticky;top:0;background:#fff;z-index:1}
+  .right{text-align:right}
+  .flex{display:flex;gap:10px;flex-wrap:wrap}
+  .grow{flex:1}
+  .hint{font-size:12px;color:#0ea5e9}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <div class="title">Controls</div>
+    <div class="controls">
+      <div class="seg">
+        <button class="btn" id="modeSelect">Select/Move</button>
+        <button class="btn" id="modeAdd">Add Router</button>
+      </div>
+      <div class="seg">
+        <button class="btn" id="modeConnect">Connect</button>
+        <button class="btn danger" id="modeDelete">Delete</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="editLink">Edit Link Metrics</button>
+      </div>
+      <div class="kv">
+        <label>Path Metric</label>
+        <select id="metric">
+          <option value="cost">Cost (additive)</option>
+          <option value="latency">Latency (ms)</option>
+          <option value="traffic">Traffic (util)</option>
+          <option value="throughput">Throughput (max)</option>
+        </select>
+      </div>
+      <div class="seg">
+        <button class="btn" id="runFromSelected">Run Dijkstra (From Selected)</button>
+        <button class="btn secondary" id="clearHighlights">Clear Highlights</button>
+      </div>
+      <div class="seg">
+        <button class="btn" id="flood">Simulate LS Flood + SPF</button>
+        <button class="btn" id="routingTables">Routing Tables</button>
+      </div>
+      <div class="seg">
+        <button class="btn warn" id="markDown">Mark Link/Router DOWN</button>
+        <button class="btn" id="markUp">Mark UP</button>
+      </div>
+      <div class="row">
+        <label class="hint">Tip: Right-click a node/edge for quick Down/Up.</label>
+      </div>
+      <div class="kv">
+        <label>Source</label>
+        <select id="srcSelect"></select>
+      </div>
+      <div class="kv">
+        <label>Destination</label>
+        <select id="dstSelect"></select>
+      </div>
+      <div class="seg">
+        <button class="btn" id="sendMsg">Send Message (compute & animate)</button>
+      </div>
+      <div class="legend">
+        <span class="pill"><span class="sw" style="background:#f59e0b"></span> candidate</span>
+        <span class="pill"><span class="sw" style="background:#7dd3fc"></span> relaxed</span>
+        <span class="pill"><span class="sw" style="background:#60a5fa"></span> final tree</span>
+        <span class="pill"><span style="width:12px;height:12px;border-radius:50%;background:#ef4444;display:inline-block"></span> packet</span>
+        <span class="pill"><span style="width:12px;height:12px;border-radius:50%;background:#16a34a;display:inline-block"></span> LSA</span>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <div class="panel canvas-wrap">
+    <div class="title">Topology</div>
+    <svg id="svg"></svg>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal" id="modal">
+  <div class="box">
+    <div class="hd">
+      <div id="modalTitle">Routing Table</div>
+      <button class="btn" id="modalClose">Close</button>
+    </div>
+    <div class="bd" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ======= State =======
+  const svg = document.getElementById('svg');
+  const logEl = document.getElementById('log');
+
+  const state = {
+    nodes: new Map(),    // id -> {id,x,y,up:true,ui:{g,circle,label}}
+    edges: new Map(),    // key a|b -> {a,b,up:true,metrics:{cost,latency,traffic,throughput}, ui:{g,line,label}}
+    mode: 'select',      // select|add|connect|delete
+    connectFrom: null,
+    nextId: 1,
+    selectedNodeId: null,
+    selectedEdgeKey: null,
+    timer: null,
+    metric: 'cost'
+  };
+
+  // ======= Helpers =======
+  const keyFor = (a,b)=> a<b? `${a}|${b}`:`${b}|${a}`;
+  const now = ()=> new Date().toLocaleTimeString();
+  const clamp = (v,min,max)=> Math.max(min,Math.min(max,v));
+
+  function log(msg){
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="muted">[${now()}]</span> ${msg}`;
+    logEl.appendChild(line); logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateDropdowns(){
+    const src = document.getElementById('srcSelect');
+    const dst = document.getElementById('dstSelect');
+    const ids = Array.from(state.nodes.keys());
+    src.innerHTML = ids.map(id=>`<option>${id}</option>`).join('');
+    dst.innerHTML = ids.map(id=>`<option>${id}</option>`).join('');
+  }
+
+  function metricWeight(edge){
+    const m = state.metric;
+    const E = edge.metrics;
+    if(m==='throughput'){
+      const t = Math.max(1e-6, E.throughput || 1);
+      return 1.0 / t; // maximize throughput by minimizing 1/throughput
+    } else if(m==='traffic'){
+      return (E.traffic ?? 1);
+    } else if(m==='latency'){
+      return (E.latency ?? 1);
+    } else {
+      return (E.cost ?? 1);
+    }
+  }
+
+  function edgeUp(edge){ return edge.up && state.nodes.get(edge.a)?.up && state.nodes.get(edge.b)?.up; }
+
+  // ======= UI Creation =======
+  function makeNode(x,y){
+    const id = 'R'+(state.nextId++);
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.classList.add('node');
+    g.setAttribute('data-id', id);
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('r', 18);
+    c.setAttribute('cx', x); c.setAttribute('cy', y);
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', x); t.setAttribute('y', y+4);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','12');
+    t.textContent = id;
+    g.appendChild(c); g.appendChild(t); svg.appendChild(g);
+    const node = {id,x,y,up:true,ui:{g,circle:c,label:t}};
+    state.nodes.set(id,node);
+
+    // drag
+    let drag=false, ox=0, oy=0;
+    g.addEventListener('mousedown',e=>{
+      if(e.button===2) return; // context handled separately
+      if(state.mode==='select' || state.mode==='connect' || state.mode==='delete'){
+        drag=true; ox=e.offsetX - node.x; oy=e.offsetY - node.y;
+        if(state.mode==='select') selectNode(id);
+      } else if(state.mode==='add'){
+        // no drag
+      }
+    });
+    window.addEventListener('mousemove',e=>{
+      if(!drag) return;
+      const pt = svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+      const ctm = svg.getScreenCTM().inverse(); const sp = pt.matrixTransform(ctm);
+      node.x = clamp(sp.x, 24, svg.clientWidth-24);
+      node.y = clamp(sp.y, 24, svg.clientHeight-24);
+      c.setAttribute('cx', node.x); c.setAttribute('cy', node.y);
+      t.setAttribute('x', node.x); t.setAttribute('y', node.y+4);
+      // update incident edges
+      for(const edge of state.edges.values()){
+        if(edge.a===id || edge.b===id) redrawEdge(edge);
+      }
+    });
+    window.addEventListener('mouseup',()=> drag=false);
+
+    // left click actions
+    g.addEventListener('click',e=>{
+      if(state.mode==='connect'){
+        if(!state.connectFrom){
+          state.connectFrom=id; selectNode(id);
+          log(`Selected ${id} as first endpoint.`);
+        } else if(state.connectFrom===id){
+          log('Cannot connect node to itself.');
+        } else {
+          const other = state.connectFrom; state.connectFrom=null;
+          promptEdge(other,id);
+        }
+      } else if(state.mode==='delete'){
+        deleteNode(id);
+      } else if(state.mode==='select'){
+        selectNode(id);
+      }
+    });
+
+    // context menu
+    g.addEventListener('contextmenu',e=>{
+      e.preventDefault();
+      selectNode(id);
+      showQuickMenu(e.clientX,e.clientY,[
+        {label: node.up? 'Mark Node DOWN':'Mark Node UP', onClick: ()=>{node.up=!node.up; applyNodeState(node);} },
+        {label: 'Run Dijkstra from here', onClick: ()=> runDijkstraFrom(id) }
+      ]);
+    });
+
+    updateDropdowns();
+    return node;
+  }
+
+  function applyNodeState(node){
+    node.ui.g.classList.toggle('disabled', !node.up);
+    for(const edge of state.edges.values()){
+      if(edge.a===node.id || edge.b===node.id) applyEdgeState(edge);
+    }
+    clearHighlights();
+  }
+
+  function redrawEdge(edge){
+    const A = state.nodes.get(edge.a), B = state.nodes.get(edge.b);
+    edge.ui.line.setAttribute('x1', A.x); edge.ui.line.setAttribute('y1', A.y);
+    edge.ui.line.setAttribute('x2', B.x); edge.ui.line.setAttribute('y2', B.y);
+    const mx=(A.x+B.x)/2, my=(A.y+B.y)/2;
+    edge.ui.label.setAttribute('x', mx); edge.ui.label.setAttribute('y', my-6);
+    edge.ui.label.textContent = edgeLabel(edge);
+  }
+
+  function edgeLabel(edge){
+    const m=edge.metrics;
+    return `c:${(m.cost??1)} l:${(m.latency??1)} t:${(m.traffic??1)} th:${(m.throughput??1)}`;
+  }
+
+  function makeEdge(a,b,metrics){
+    const A = state.nodes.get(a), B = state.nodes.get(b);
+    const key = keyFor(a,b);
+    if(state.edges.has(key)){
+      const e=state.edges.get(key); e.metrics=metrics; redrawEdge(e); log(`Updated link ${a}–${b}.`); return e;
+    }
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.classList.add('edge');
+    line.setAttribute('x1', A.x); line.setAttribute('y1', A.y);
+    line.setAttribute('x2', B.x); line.setAttribute('y2', B.y);
+    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('class','edge-label');
+    label.setAttribute('text-anchor','middle');
+    g.appendChild(line); g.appendChild(label); svg.insertBefore(g, svg.firstChild); // behind nodes
+    const edge={a,b,up:true,metrics:{...metrics},ui:{g,line,label}};
+    state.edges.set(key,edge);
+    redrawEdge(edge);
+
+    // click & context
+    g.addEventListener('click',()=>{
+      state.selectedEdgeKey=key; state.selectedNodeId=null; highlightSelection();
+      if(state.mode==='delete') deleteEdge(key);
+      else if(state.mode==='connect') log('Edge already exists; select another start node.');
+    });
+    g.addEventListener('contextmenu',e=>{
+      e.preventDefault(); state.selectedEdgeKey=key; state.selectedNodeId=null; highlightSelection();
+      showQuickMenu(e.clientX,e.clientY,[
+        {label: edge.up? 'Mark Link DOWN':'Mark Link UP', onClick: ()=>{edge.up=!edge.up; applyEdgeState(edge);} },
+        {label: 'Edit Metrics', onClick: ()=> promptEditEdge(edge) }
+      ]);
+    });
+
+    applyEdgeState(edge);
+    return edge;
+  }
+
+  function applyEdgeState(edge){
+    edge.ui.line.classList.toggle('disabled', !edgeUp(edge));
+    redrawEdge(edge);
+    clearHighlights();
+  }
+
+  function promptEdge(a,b){
+    // simple prompt for metrics
+    showModalForm(`Create/Update Link: ${a} – ${b}`,[
+      {name:'cost', label:'Cost', type:'number', value:1, step:'1', min:'0'},
+      {name:'latency', label:'Latency (ms)', type:'number', value:1, step:'1', min:'0'},
+      {name:'traffic', label:'Traffic (util)', type:'number', value:1, step:'1', min:'0'},
+      {name:'throughput', label:'Throughput (Mbps)', type:'number', value:10, step:'1', min:'0'}
+    ],(vals)=>{
+      const metrics = {
+        cost: Number(vals.cost)||1,
+        latency: Number(vals.latency)||1,
+        traffic: Number(vals.traffic)||1,
+        throughput: Math.max(0.0001, Number(vals.throughput)||10)
+      };
+      makeEdge(a,b,metrics);
+    });
+  }
+
+  function promptEditEdge(edge){
+    showModalForm(`Edit Link: ${edge.a} – ${edge.b}`,[
+      {name:'cost', label:'Cost', type:'number', value:edge.metrics.cost??1, step:'1', min:'0'},
+      {name:'latency', label:'Latency (ms)', type:'number', value:edge.metrics.latency??1, step:'1', min:'0'},
+      {name:'traffic', label:'Traffic (util)', type:'number', value:edge.metrics.traffic??1, step:'1', min:'0'},
+      {name:'throughput', label:'Throughput (Mbps)', type:'number', value:edge.metrics.throughput??10, step:'1', min:'0'}
+    ],(vals)=>{
+      edge.metrics.cost = Number(vals.cost)||1;
+      edge.metrics.latency = Number(vals.latency)||1;
+      edge.metrics.traffic = Number(vals.traffic)||1;
+      edge.metrics.throughput = Math.max(0.0001, Number(vals.throughput)||10);
+      redrawEdge(edge); clearHighlights();
+    });
+  }
+
+  // ======= Selection / Deletion =======
+  function selectNode(id){ state.selectedNodeId=id; state.selectedEdgeKey=null; highlightSelection(); document.getElementById('srcSelect').value=id; }
+  function highlightSelection(){
+    for(const n of state.nodes.values()) n.ui.g.classList.toggle('current', n.id===state.selectedNodeId);
+    for(const e of state.edges.values()) e.ui.line.classList.remove('relaxed','candidate','final');
+  }
+
+  function deleteNode(id){
+    const node = state.nodes.get(id); if(!node) return;
+    // remove incident edges
+    for(const e of Array.from(state.edges.values())){
+      if(e.a===id || e.b===id){ deleteEdge(keyFor(e.a,e.b), true); }
+    }
+    svg.removeChild(node.ui.g);
+    state.nodes.delete(id);
+    if(state.selectedNodeId===id) state.selectedNodeId=null;
+    updateDropdowns(); clearHighlights(); log(`Deleted ${id}.`);
+  }
+
+  function deleteEdge(key,quiet){
+    const e = state.edges.get(key); if(!e) return;
+    svg.removeChild(e.ui.g);
+    state.edges.delete(key);
+    if(state.selectedEdgeKey===key) state.selectedEdgeKey=null;
+    if(!quiet) log(`Deleted link ${e.a}–${e.b}.`);
+    clearHighlights();
+  }
+
+  // ======= Modes =======
+  function setMode(m){ state.mode=m; log(`Mode: ${m.toUpperCase()}`); }
+  document.getElementById('modeSelect').onclick=()=>setMode('select');
+  document.getElementById('modeAdd').onclick=()=>setMode('add');
+  document.getElementById('modeConnect').onclick=()=>{ setMode('connect'); state.connectFrom=null; };
+  document.getElementById('modeDelete').onclick=()=>setMode('delete');
+
+  // ======= Canvas click for adding nodes =======
+  svg.addEventListener('click', e=>{
+    const pt = svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    if(state.mode==='add'){
+      makeNode(p.x, p.y);
+    }
+  });
+
+  // ======= Edit link metrics button =======
+  document.getElementById('editLink').onclick=()=>{
+    if(!state.selectedEdgeKey){ log('Select a link first (click its line)'); return; }
+    const e=state.edges.get(state.selectedEdgeKey); if(!e) return;
+    promptEditEdge(e);
+  };
+
+  // ======= Metric select =======
+  document.getElementById('metric').onchange=(e)=>{ state.metric=e.target.value; clearHighlights(); log(`Metric set to ${state.metric}`); };
+
+  // ======= Clear Highlights =======
+  document.getElementById('clearHighlights').onclick=()=> clearHighlights();
+  function clearHighlights(){
+    for(const n of state.nodes.values()) n.ui.g.classList.remove('current','settled');
+    for(const e of state.edges.values()) e.ui.line.classList.remove('candidate','relaxed','final');
+    // remove packets
+    Array.from(svg.querySelectorAll('.packet,.lsa')).forEach(p=>p.remove());
+  }
+
+  // ======= Dijkstra (single-source) with step-by-step visuals =======
+  document.getElementById('runFromSelected').onclick=()=>{
+    const src = state.selectedNodeId || document.getElementById('srcSelect').value;
+    if(!src) { log('Select a source router.'); return; }
+    runDijkstraFrom(src);
+  };
+
+  function runDijkstraFrom(src){
+    clearHighlights();
+    if(!state.nodes.has(src)){ log('Invalid source.'); return; }
+
+    const nodes = Array.from(state.nodes.keys());
+    const adj = new Map(nodes.map(n=>[n,[]]));
+    for(const e of state.edges.values()){
+      if(!edgeUp(e)) continue;
+      adj.get(e.a).push({to:e.b, edge:e});
+      adj.get(e.b).push({to:e.a, edge:e});
+    }
+    const INF=1e15; const dist={}; const prev={}; const visited=new Set();
+    nodes.forEach(n=>{dist[n]=INF; prev[n]=null;});
+    dist[src]=0; const pq=[{d:0,n:src}];
+
+    const actions=[];
+    function push(fn){ actions.push(fn); }
+
+    push(()=> log(`\n=== Dijkstra from ${src} (metric: ${state.metric}) ===`));
+
+    function heapPop(){
+      // simple min pop
+      let minIdx=-1, best=Infinity; for(let i=0;i<pq.length;i++){ if(pq[i].d<best){best=pq[i].d; minIdx=i;} }
+      if(minIdx===-1) return null; const it=pq[minIdx]; pq.splice(minIdx,1); return it;
+    }
+
+    function snapshot(u,note){
+      const s=Object.entries(dist).map(([k,v])=>`${k}:${v>=1e14?'inf':v.toFixed(1)}`).join(', ');
+      log(`${note?note+' | ':''}dist=[${s}]`);
+    }
+
+    const order=[];
+    while(true){
+      let it=heapPop();
+      while(it && visited.has(it.n)) it=heapPop();
+      if(!it) break;
+      const u=it.n; visited.add(u); order.push(u);
+      push(()=> markCurrent(u));
+      push(()=> snapshot(u,`settled ${u}`));
+
+      for(const nb of adj.get(u)){
+        const v=nb.to, e=nb.edge; const w=metricWeight(e);
+        push(()=> markCandidate(e));
+        push(()=> log(`Consider ${u} ↔ ${v} (w=${w.toFixed(2)})`));
+        push(()=>{
+          const alt=dist[u]+w;
+          if(alt<dist[v]){
+            const old=dist[v]; dist[v]=alt; prev[v]=u; pq.push({d:alt,n:v});
+            markRelaxed(e);
+            log(`  Relax: dist[${v}] ${old>=1e14?'inf':old.toFixed(1)} → ${alt.toFixed(1)} via ${u}`);
+          } else {
+            unmarkCandidate(e);
+            log(`  No relax for ${v}`);
+          }
+        });
+      }
+      push(()=> markSettled(u));
+    }
+
+    // finalize: mark final SPF tree
+    push(()=>{
+      for(const v of nodes){ if(v===src) continue; if(prev[v]){ const e=state.edges.get(keyFor(v,prev[v])); if(e) markFinal(e); } }
+      log(`Completed from ${src}.`);
+      showRoutingTable(src, dist, prev);
+    });
+
+    runActions(actions, 500);
+  }
+
+  // ======= Visual marking helpers =======
+  function markCurrent(id){
+    for(const n of state.nodes.values()){
+      if(n.ui.g.classList.contains('settled')) continue;
+      n.ui.g.classList.remove('current');
+    }
+    state.nodes.get(id)?.ui.g.classList.add('current');
+  }
+  function markSettled(id){ state.nodes.get(id)?.ui.g.classList.add('settled'); }
+  function markCandidate(e){ e.ui.line.classList.add('candidate'); }
+  function unmarkCandidate(e){ e.ui.line.classList.remove('candidate'); }
+  function markRelaxed(e){ e.ui.line.classList.remove('candidate'); e.ui.line.classList.add('relaxed'); }
+  function markFinal(e){ e.ui.line.classList.remove('candidate','relaxed'); e.ui.line.classList.add('final'); }
+
+  function runActions(actions, ms){
+    let i=0; const tick=()=>{ if(i>=actions.length){ clearInterval(state.timer); state.timer=null; return; } actions[i++](); };
+    clearInterval(state.timer); state.timer=setInterval(tick, ms); tick();
+  }
+
+  // ======= Send Message (merged with highlight) =======
+  document.getElementById('sendMsg').onclick=()=>{
+    const s=document.getElementById('srcSelect').value; const d=document.getElementById('dstSelect').value; if(!s||!d||s===d){ log('Select valid source/destination.'); return; }
+    const path = shortestPath(s,d); if(!path){ log(`No path ${s}→${d}`); return; }
+    const msg = prompt('Enter message to send:','Hello CN!'); if(msg==null) return;
+    // compute aggregated metrics along path
+    let total_cost=0, total_latency=0, total_traffic=0, min_throughput=Infinity;
+    for(let i=0;i<path.length-1;i++){
+      const e=state.edges.get(keyFor(path[i],path[i+1])); if(!e) continue;
+      total_cost += (e.metrics.cost||0);
+      total_latency += (e.metrics.latency||0);
+      total_traffic += (e.metrics.traffic||0);
+      min_throughput = Math.min(min_throughput, e.metrics.throughput||0);
+      markFinal(e);
+    }
+    if(min_throughput===Infinity) min_throughput = 0;
+    const avg_traffic = path.length>1 ? (total_traffic/(path.length-1)) : 0;
+
+    log(`Message from ${s} to ${d}: ${msg}`);
+    animatePacketWithDelivery(path, msg, {
+      metricUsed: state.metric,
+      total_cost, total_latency, avg_traffic, min_throughput
+    });
+  };
+
+  function shortestPath(src,dst){
+    // run dijkstra quickly
+    const nodes = Array.from(state.nodes.keys());
+    const adj = new Map(nodes.map(n=>[n,[]]));
+    for(const e of state.edges.values()) if(edgeUp(e)){ adj.get(e.a).push({to:e.b,edge:e}); adj.get(e.b).push({to:e.a,edge:e}); }
+    const INF=1e15, dist={}, prev={}; nodes.forEach(n=>{dist[n]=INF; prev[n]=null}); dist[src]=0; const pq=[{d:0,n:src}];
+    function pop(){ let k=-1,b=Infinity; for(let i=0;i<pq.length;i++){ if(pq[i].d<b){b=pq[i].d;k=i;} } if(k<0)return null; const it=pq[k]; pq.splice(k,1); return it; }
+    const vis=new Set();
+    while(true){ let it=pop(); while(it && vis.has(it.n)) it=pop(); if(!it) break; const u=it.n; vis.add(u); if(u===dst) break; for(const nb of adj.get(u)){ const w=metricWeight(nb.edge); const alt=dist[u]+w; if(alt<dist[nb.to]){dist[nb.to]=alt; prev[nb.to]=u; pq.push({d:alt,n:nb.to});} } }
+    if(dist[dst]>=1e14) return null; const path=[]; let cur=dst; while(cur){ path.push(cur); cur=prev[cur]; } path.reverse(); return path;
+  }
+
+  function animatePacketWithDelivery(path, msg, metrics){
+    if(!path || path.length<2) return;
+    const nodes = [ ...path.map(id => state.nodes.get(id)) ];
+    const packet = document.createElementNS('http://www.w3.org/2000/svg','circle'); packet.setAttribute('r',6); packet.setAttribute('class','packet'); svg.appendChild(packet);
+
+    // build points across edges
+    const points = [];
+    for(let i=0;i<nodes.length-1;i++){ const A=nodes[i], B=nodes[i+1]; const steps=40; for(let s=0;s<steps;s++){ const t=s/steps; const x=A.x+(B.x-A.x)*t; const y=A.y+(B.y-A.y)*t; points.push({x,y,edgeFrom: nodes[i].id, edgeTo: nodes[i+1].id, stepInEdge: s, steps}); } }
+    points.push({x:nodes[nodes.length-1].x, y:nodes[nodes.length-1].y, final:true});
+
+    let idx=0; const speed=22;
+    const timer = setInterval(()=>{
+      if(idx>=points.length){ clearInterval(timer); try{ packet.remove(); }catch(e){}; showDeliveryModal(path, msg, metrics); return; }
+      const p = points[idx]; packet.setAttribute('cx', p.x); packet.setAttribute('cy', p.y);
+      idx++;
+    }, speed);
+  }
+
+  function showDeliveryModal(path, msg, metrics){
+    const title = 'Message Delivered';
+    const pathStr = path.join(' → ');
+    const body = `<div class="bd"><h3>${title}</h3>
+      <p><strong>Message:</strong> ${escapeHtml(msg)}</p>
+      <p><strong>Path:</strong> ${pathStr}</p>
+      <p><strong>Metric used:</strong> ${metrics.metricUsed}</p>
+      <div style="display:flex;gap:12px;margin-top:8px">
+        <div><strong>Total cost:</strong><div>${metrics.total_cost.toFixed(2)}</div></div>
+        <div><strong>Total latency:</strong><div>${metrics.total_latency.toFixed(2)} ms</div></div>
+        <div><strong>Avg traffic:</strong><div>${metrics.avg_traffic.toFixed(2)}</div></div>
+        <div><strong>Min throughput:</strong><div>${metrics.min_throughput.toFixed(2)} Mbps</div></div>
+      </div>
+    </div>`;
+    showModal('Message Delivery', body);
+    // auto-close after 3s
+    setTimeout(()=>{ document.getElementById('modal').classList.remove('active'); }, 3000);
+  }
+
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ======= Link-State Flood (LSA) Simulation =======
+  document.getElementById('flood').onclick=()=>{
+    simulateFlood(()=>{
+      const src = state.selectedNodeId || document.getElementById('srcSelect').value;
+      if(!src){ log('Flood done. Select a source and run SPF.'); return; }
+      runDijkstraFrom(src);
+    });
+  };
+
+  function simulateFlood(onDone){
+    clearHighlights();
+    log(`\n=== Simulating Link-State Flooding ===`);
+    const stepPaths=[];
+    for(const e of state.edges.values()) if(edgeUp(e)) stepPaths.push([e.a,e.b],[e.b,e.a]);
+    let i=0; const per=120;
+    const timer=setInterval(()=>{
+      if(i>=stepPaths.length){ clearInterval(timer); log('LS flood converged (all LSAs received).'); if(onDone) onDone(); return; }
+      const [a,b]=stepPaths[i++]; animatePacket([a,b],'lsa',14);
+    }, per);
+  }
+
+  // ======= Routing Tables (Modal) =======
+  document.getElementById('routingTables').onclick=()=>{ showAllRoutingTables(); };
+
+  function showRoutingTable(src, dist, prev){
+    const rows=[]; const ids=Array.from(state.nodes.keys()).sort();
+    for(const dst of ids){ if(dst===src) continue; const path=buildPath(prev,src,dst); const cost=dist[dst];
+      rows.push({dst, nextHop: path&&path[1]?path[1]:'-', hops: path?path.length-1:'-', cost: (cost>=1e14? '∞': cost.toFixed(2)), path: path? path.join(' → ') : 'unreachable'});
+    }
+    const body = `<div class="flex"><div class="grow"><div class="hint">Metric: <b>${state.metric}</b> — Tables recompute with current metric and DOWN/UP status.</div></div>
+                 <button class="btn" id="exportRT">Export CSV</button></div>
+      <table><thead><tr><th>Destination</th><th>Next Hop</th><th class="right">Hops</th><th class="right">Cost</th><th>Path</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${r.dst}</td><td>${r.nextHop}</td><td class="right">${r.hops}</td><td class="right">${r.cost}</td><td>${r.path}</td></tr>`).join('')}
+      </tbody></table>`;
+    showModal('Routing Table — Source '+src, body);
+    document.getElementById('exportRT').onclick=()=>{
+      const csv=['Destination,NextHop,Hops,Cost,Path'];
+      rows.forEach(r=> csv.push([r.dst,r.nextHop,r.hops,r.cost,'"'+r.path+'"'].join(',')) );
+      download(`routing_${src}_${state.metric}.csv`, csv.join('\n'));
+    };
+  }
+
+  function showAllRoutingTables(){
+    const ids=Array.from(state.nodes.keys()).sort();
+    let html = `<div class="hint">Metric: <b>${state.metric}</b></div>`;
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
+    for(const s of ids){
+      const {dist,prev}=dijkstraQuick(s);
+      html += `<div class="panel" style="border-radius:8px;background:#fff;padding:8px"><div class="title" style="padding:6px 10px;font-size:13px">Source ${s}</div><div class="controls" style="gap:6px">`;
+      html += '<table><thead><tr><th>Dest</th><th>NH</th><th class="right">H</th><th class="right">Cost</th></tr></thead><tbody>';
+      for(const d of ids){ if(d===s) continue; const path=buildPath(prev,s,d); const cost=dist[d];
+        html += `<tr><td>${d}</td><td>${path&&path[1]?path[1]:'-'}</td><td class="right">${path?path.length-1:'-'}</td><td class="right">${cost>=1e14?'∞':cost.toFixed(2)}</td></tr>`;
+      }
+      html += '</tbody></table></div></div>';
+    }
+    html += '</div>';
+    showModal('Routing Tables — All Routers', html);
+  }
+
+  function dijkstraQuick(src){
+    const nodes = Array.from(state.nodes.keys());
+    const adj = new Map(nodes.map(n=>[n,[]]));
+    for(const e of state.edges.values()) if(edgeUp(e)){ adj.get(e.a).push({to:e.b,edge:e}); adj.get(e.b).push({to:e.a,edge:e}); }
+    const INF=1e15, dist={}, prev={}; nodes.forEach(n=>{dist[n]=INF; prev[n]=null}); dist[src]=0; const pq=[{d:0,n:src}];
+    function pop(){ let k=-1,b=Infinity; for(let i=0;i<pq.length;i++){ if(pq[i].d<b){b=pq[i].d;k=i;} } if(k<0)return null; const it=pq[k]; pq.splice(k,1); return it; }
+    const vis=new Set();
+    while(true){ let it=pop(); while(it && vis.has(it.n)) it=pop(); if(!it) break; const u=it.n; vis.add(u); for(const nb of adj.get(u)){ const w=metricWeight(nb.edge); const alt=dist[u]+w; if(alt<dist[nb.to]){dist[nb.to]=alt; prev[nb.to]=u; pq.push({d:alt,n:nb.to});} } }
+    return {dist,prev};
+  }
+
+  function buildPath(prev,src,dst){ if(prev[dst]==null && src!==dst) return null; const path=[]; let cur=dst; while(cur){ path.push(cur); if(cur===src) break; cur=prev[cur]; if(cur==null && path[path.length-1]!==src) return null; } path.reverse(); return path; }
+
+  // ======= DOWN/UP buttons =======
+  document.getElementById('markDown').onclick=()=> chooseDownUp(false);
+  document.getElementById('markUp').onclick=()=> chooseDownUp(true);
+  function chooseDownUp(up){
+    const ids=Array.from(state.nodes.keys()); const eids=Array.from(state.edges.values()).map(e=>`${e.a}–${e.b}`);
+    showModalForm(up?'Mark UP':'Mark DOWN',[
+      {name:'type',label:'Type (node/link):', type:'text', value:'node'},
+      {name:'id',label:'ID (Node id or A–B):', type:'text', value: ids[0]||''}
+    ],(vals)=>{
+      if(vals.type.toLowerCase()==='node'){
+        const n=state.nodes.get(vals.id.trim()); if(!n) return alert('No such node'); n.up=up; applyNodeState(n);
+      } else {
+        const pr=vals.id.replace(/\s+/g,'').split(/[–-]/); if(pr.length<2) return alert('Link format A–B');
+        const key=keyFor(pr[0],pr[1]); const e=state.edges.get(key); if(!e) return alert('No such link'); e.up=up; applyEdgeState(e);
+      }
+    });
+  }
+
+  // ======= Modal helpers =======
+  const modal=document.getElementById('modal'); const modalBody=document.getElementById('modalBody'); const modalTitle=document.getElementById('modalTitle');
+  document.getElementById('modalClose').onclick=()=> modal.classList.remove('active');
+  function showModal(title, html){ modalTitle.textContent=title; modalBody.innerHTML=html; modal.classList.add('active'); }
+  function showModalForm(title, fields, onSubmit){
+    const html = [`<form id="modalForm"><div class="controls">`];
+    for(const f of fields){ html.push(`<div class="kv"><label>${f.label}</label><input name="${f.name}" type="${f.type}" value="${f.value??''}" step="${f.step||''}" min="${f.min||''}" /></div>`); }
+    html.push(`<div class="row"><button class="btn" type="submit">OK</button></div></div></form>`);
+    showModal(title, html.join(''));
+    document.getElementById('modalForm').onsubmit=(e)=>{ e.preventDefault(); const data=Object.fromEntries(new FormData(e.target).entries()); modal.classList.remove('active'); onSubmit(data); };
+  }
+  function download(filename, text){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=filename; a.click(); }
+
+  // Quick context menu
+  let qmenu; function showQuickMenu(x,y,items){ if(qmenu) qmenu.remove(); qmenu=document.createElement('div'); qmenu.style.position='fixed'; qmenu.style.left=x+'px'; qmenu.style.top=y+'px'; qmenu.style.background='#fff'; qmenu.style.border='1px solid rgba(11,37,64,0.06)'; qmenu.style.borderRadius='8px'; qmenu.style.padding='6px'; qmenu.style.zIndex=60; qmenu.style.boxShadow='0 12px 30px rgba(11,37,64,0.08)';
+    items.forEach(it=>{ const b=document.createElement('div'); b.textContent=it.label; b.style.padding='6px 10px'; b.style.cursor='pointer'; b.onmouseenter=()=> b.style.background='#f1f8ff'; b.onmouseleave=()=> b.style.background='transparent'; b.onclick=()=>{ it.onClick(); qmenu.remove(); qmenu=null; }; qmenu.appendChild(b); });
+    document.body.appendChild(qmenu);
+  }
+  window.addEventListener('click',()=>{ if(qmenu){ qmenu.remove(); qmenu=null; } });
+
+  // ======= Init demo topology =======
+  const n1=makeNode(320,180); const n2=makeNode(560,120); const n3=makeNode(760,220); const n4=makeNode(520,320); const n5=makeNode(300,340);
+  makeEdge(n1.id,n2.id,{cost:2,latency:4,traffic:3,throughput:10});
+  makeEdge(n2.id,n3.id,{cost:2,latency:2,traffic:1,throughput:30});
+  makeEdge(n1.id,n4.id,{cost:5,latency:6,traffic:4,throughput:8});
+  makeEdge(n4.id,n3.id,{cost:1,latency:2,traffic:1,throughput:20});
+  makeEdge(n1.id,n5.id,{cost:3,latency:3,traffic:2,throughput:15});
+  makeEdge(n5.id,n4.id,{cost:2,latency:2,traffic:1,throughput:18});
+  updateDropdowns();
+  selectNode(n1.id);
+})();
+</script>
+
+</body>
+</html>
